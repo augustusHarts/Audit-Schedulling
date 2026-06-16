@@ -2,6 +2,9 @@ from src.utils.decorators.logger import log_stage
 from src.utils.decorators.save_output import save_output
 from src.optimization.optimizer import AssignmentOptimizer
 from src.utils.config import OUTPUT_DIR
+from src.optimization.scheduling.jobs import create_schedule_jobs
+from src.optimization.scheduling.scheduller import Scheduler
+import pandas as pd
 
 class OptimizationPipeline:
 
@@ -22,71 +25,57 @@ class OptimizationPipeline:
             optimizer.solve()
         )
         
-        assignment_summary = (
-            assignments
-            .groupby("auditor_id")
-            .agg(
-                branch_count=(
-                    "branch_code",
-                    "count"
-                )
-            )
-            .sort_values(
-                "branch_count",
-                ascending=False
-            )
-            .reset_index()
-        )
-
-        workload_summary = (
+        kpi_report = (
             assignments
             .merge(
                 audit_job_master[
                     [
                         "branch_code",
                         "audit_days",
-                    ]
-                ],
-                on="branch_code",
-                how="left",
-            )
-            .groupby("auditor_id")
-            .agg(
-                total_audit_days=(
-                    "audit_days",
-                    "sum"
-                )
-            )
-            .sort_values(
-                "total_audit_days",
-                ascending=False
-            )
-            .reset_index()
-        )
-        audit_type_split = (
-            assignments
-            .merge(
-                audit_job_master[
-                    [
-                        "branch_code",
                         "audit_type",
                     ]
                 ],
                 on="branch_code",
                 how="left",
             )
-            .pivot_table(
-                index="auditor_id",
-                columns="audit_type",
-                values="branch_code",
-                aggfunc="count",
-                fill_value=0,
+        )
+
+        summary = (
+            kpi_report
+            .groupby("auditor_id")
+            .agg(
+                branch_count=(
+                    "branch_code",
+                    "nunique",      # <-- important
+                ),
+                total_audit_days=(
+                    "audit_days",
+                    "sum",
+                ),
+                onsite_count=(
+                    "audit_type",
+                    lambda x: (x == "ONSITE").sum(),
+                ),
+                offsite_count=(
+                    "audit_type",
+                    lambda x: (x == "OFFSITE").sum(),
+                ),
             )
             .reset_index()
         )
-        
-        print("Assignment Summary \n",assignment_summary)
-        print("Workload Summary \n",workload_summary)
-        print("Audit type split \n",audit_type_split)
 
-        return assignments
+        jobs = create_schedule_jobs(
+            assignments,
+            audit_job_master,
+        )
+
+        scheduler = Scheduler(
+            jobs=jobs,
+            quarter_start=pd.Timestamp(
+                "2025-04-01"
+            ),
+        )
+
+        result = scheduler.solve()
+
+        return result

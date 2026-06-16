@@ -1,9 +1,47 @@
-# src/optimization/variables.py
-
 from __future__ import annotations
-
 from ortools.sat.python import cp_model
 import pandas as pd
+
+def create_schedule_variables(
+    model: cp_model.CpModel,
+    jobs: pd.DataFrame,
+    horizon: int,
+):
+
+    start_vars = {}
+    end_vars = {}
+    interval_vars = {}
+
+    for row in jobs.itertuples(index=False):
+
+        start = model.NewIntVar(
+            0,
+            horizon,
+            f"start_{row.job_id}",
+        )
+
+        end = model.NewIntVar(
+            0,
+            horizon,
+            f"end_{row.job_id}",
+        )
+
+        interval = model.NewIntervalVar(
+            start,
+            int(row.audit_days),
+            end,
+            f"interval_{row.job_id}",
+        )
+
+        start_vars[row.job_id] = start
+        end_vars[row.job_id] = end
+        interval_vars[row.job_id] = interval
+
+    return (
+        start_vars,
+        end_vars,
+        interval_vars,
+    )
 
 
 def create_variables(
